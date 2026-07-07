@@ -125,6 +125,35 @@ RUN fvm install 3.32.8 \
     && fvm install 3.41.9
 
 # ------------------------------------------------------------
+# Node custom do Claude Code (buildado a partir DESTE repo)
+# ------------------------------------------------------------
+# O código-fonte do node está no build context (easypanel builda este repo).
+# Compilamos aqui e instalamos o tarball em ~/.n8n/nodes — o n8n carrega pacotes
+# encontrados em ~/.n8n/nodes/node_modules no startup, sem precisar instalar pela
+# UI (Community Nodes) nem registrar no banco.
+#
+# Usa @anthropic-ai/claude-agent-sdk (o SDK atual). O @anthropic-ai/claude-code
+# global + symlink acima são legado — mantidos só pela CLI `claude` / auth.
+# --legacy-peer-deps: NÃO instala o peer n8n-workflow localmente (o n8n já provê;
+# instalá-lo puxaria o módulo nativo isolated-vm). Precisa rodar ANTES do
+# `ENV NODE_ENV=production` abaixo, senão o npm ci pularia as devDependencies.
+WORKDIR /tmp/claudecode-node
+COPY --chown=node:node package.json package-lock.json tsconfig.json gulpfile.js .prettierrc.js ./
+COPY --chown=node:node nodes ./nodes
+RUN npm ci --include=dev --no-audit --no-fund \
+    && npm run build \
+    && npm pack \
+    && mkdir -p /home/node/.n8n/nodes \
+    && cd /home/node/.n8n/nodes \
+    && npm init -y >/dev/null 2>&1 \
+    && npm install /tmp/claudecode-node/johnlindquist-n8n-nodes-claudecode-*.tgz \
+         --omit=dev --legacy-peer-deps --no-audit --no-fund \
+    && echo "--- node custom instalado em ~/.n8n/nodes ---" \
+    && ls node_modules/@johnlindquist node_modules/@anthropic-ai \
+    && rm -rf /tmp/claudecode-node /home/node/.npm/_cacache
+WORKDIR /home/node
+
+# ------------------------------------------------------------
 # Configuração final
 # ------------------------------------------------------------
 ENV SHELL=/bin/bash
