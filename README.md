@@ -143,6 +143,7 @@ Claude Code comes equipped with powerful tools:
 ### **Advanced SDK Options**
 Fine-tune Claude Code's behavior with these powerful options:
 - 🎚️ **Reasoning Effort**: Control how hard the model thinks — `low`, `medium`, `high`, `xhigh`, or `max`. Levels the selected model doesn't support are silently downgraded.
+- 🧬 **Ultracode**: The last entry in the Reasoning Effort dropdown (mirrors the Claude Code CLI's effort selector). It enables `xhigh` effort **plus standing multi-agent workflow orchestration**. Requires an `xhigh`-capable model (e.g. Opus 4.8) and Workflows enabled on your account. ⚠️ It can spawn many subagents per task — significantly multiplying token cost and runtime — so leave it off for routine flows.
 - 🚫 **Disallowed Tools**: Explicitly block specific tools for security
 - 🔄 **Fallback Model**: Automatically switch models when primary is overloaded
 - 🧠 **Max Thinking Tokens**: Deprecated by the SDK in favor of Reasoning Effort, but still honored

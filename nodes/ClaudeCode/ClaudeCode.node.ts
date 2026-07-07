@@ -129,10 +129,16 @@ export class ClaudeCode implements INodeType {
 						value: 'max',
 						description: 'Maximum effort (Opus 4.6+, Sonnet 4.6+, Fable 5)',
 					},
+					{
+						name: 'Ultracode (Xhigh + Workflows)',
+						value: 'ultracode',
+						description:
+							'Xhigh effort plus standing multi-agent workflow orchestration. Requires an xhigh-capable model (e.g. Opus 4.8) and Workflows enabled on the account. Warning: can spawn many subagents — multiplies token cost and runtime.',
+					},
 				],
 				default: '',
 				description:
-					'How much reasoning effort Claude applies to each turn. Levels the selected model does not support are silently downgraded.',
+					'How much reasoning effort Claude applies to each turn. Levels the selected model does not support are silently downgraded. "Ultracode" additionally enables multi-agent workflows (like the CLI effort selector).',
 			},
 			{
 				displayName: 'Max Turns',
@@ -396,9 +402,14 @@ export class ClaudeCode implements INodeType {
 					queryOptions.allowDangerouslySkipPermissions = true;
 				}
 
-				// Reasoning effort (low | medium | high | xhigh | max). Empty string
-				// means "let the model/CLI decide", so we leave the field unset.
-				if (effort) {
+				// Reasoning effort. Empty string means "let the model/CLI decide".
+				// "ultracode" is NOT an effort level — it is a Settings flag (the SDK
+				// equivalent of the CLI `--settings`) that turns on xhigh effort plus
+				// standing multi-agent workflow orchestration. Everything else maps to
+				// the plain `effort` field.
+				if (effort === 'ultracode') {
+					queryOptions.settings = { ultracode: true, enableWorkflows: true };
+				} else if (effort) {
 					queryOptions.effort = effort as EffortLevel;
 				}
 
