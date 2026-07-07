@@ -7,6 +7,7 @@
     "n8n",
     "claude",
     "claude-code",
+    "claude-agent-sdk",
     "ai",
     "anthropic",
     "mcp",
@@ -49,7 +50,10 @@
     ]
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "latest"
+    "@anthropic-ai/claude-agent-sdk": "^0.3.202",
+    "@anthropic-ai/sdk": ">=0.93.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@semantic-release/changelog": "^6.0.3",

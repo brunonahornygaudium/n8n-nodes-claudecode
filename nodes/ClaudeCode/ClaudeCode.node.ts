@@ -5,7 +5,23 @@ import type {
 	INodeTypeDescription,
 } from 'n8n-workflow';
 import { NodeConnectionType, NodeOperationError } from 'n8n-workflow';
-import { query, type SDKMessage } from '@anthropic-ai/claude-code';
+import type {
+	EffortLevel,
+	Options,
+	PermissionMode,
+	SDKMessage,
+} from '@anthropic-ai/claude-agent-sdk';
+
+// The Claude Agent SDK (@anthropic-ai/claude-agent-sdk) is ESM-only. This node
+// is compiled to CommonJS (an n8n requirement), so a static
+// `import { query } from '@anthropic-ai/claude-agent-sdk'` would be downleveled
+// by TypeScript to `require()` and throw ERR_REQUIRE_ESM at runtime on the
+// versions of Node.js n8n commonly runs on. Load it through a genuine dynamic
+// `import()` instead. The indirection through `new Function` prevents
+// TypeScript from rewriting the `import()` into a `require()` call.
+const importClaudeAgentSdk = new Function(
+	'return import("@anthropic-ai/claude-agent-sdk")',
+) as () => Promise<typeof import('@anthropic-ai/claude-agent-sdk')>;
 
 export class ClaudeCode implements INodeType {
 	description: INodeTypeDescription = {
@@ -75,6 +91,48 @@ export class ClaudeCode implements INodeType {
 				],
 				default: 'sonnet',
 				description: 'Claude model to use',
+			},
+			{
+				displayName: 'Reasoning Effort',
+				name: 'effort',
+				type: 'options',
+				// Ordered by increasing effort (low → max) for usability, not alphabetically.
+				// eslint-disable-next-line n8n-nodes-base/node-param-options-type-unsorted-items
+				options: [
+					{
+						name: 'Default (Model Decides)',
+						value: '',
+						description: 'Do not set an effort level; use the model/CLI default',
+					},
+					{
+						name: 'Low',
+						value: 'low',
+						description: 'Minimal thinking, fastest responses',
+					},
+					{
+						name: 'Medium',
+						value: 'medium',
+						description: 'Moderate thinking',
+					},
+					{
+						name: 'High',
+						value: 'high',
+						description: 'Deep reasoning (the model default on capable models)',
+					},
+					{
+						name: 'XHigh',
+						value: 'xhigh',
+						description: 'Deeper than high (Opus 4.7+, Sonnet 5, Fable 5)',
+					},
+					{
+						name: 'Max',
+						value: 'max',
+						description: 'Maximum effort (Opus 4.6+, Sonnet 4.6+, Fable 5)',
+					},
+				],
+				default: '',
+				description:
+					'How much reasoning effort Claude applies to each turn. Levels the selected model does not support are silently downgraded.',
 			},
 			{
 				displayName: 'Max Turns',
@@ -279,6 +337,7 @@ export class ClaudeCode implements INodeType {
 				const operation = this.getNodeParameter('operation', itemIndex) as string;
 				const prompt = this.getNodeParameter('prompt', itemIndex) as string;
 				const model = this.getNodeParameter('model', itemIndex) as string;
+				const effort = this.getNodeParameter('effort', itemIndex, '') as string;
 				const maxTurns = this.getNodeParameter('maxTurns', itemIndex) as number;
 				timeout = this.getNodeParameter('timeout', itemIndex) as number;
 				const projectPath = this.getNodeParameter('projectPath', itemIndex) as string;
@@ -311,6 +370,7 @@ export class ClaudeCode implements INodeType {
 						itemIndex,
 						prompt: prompt.substring(0, 100) + '...',
 						model,
+						effort: effort || 'default',
 						maxTurns,
 						timeout: `${timeout}s`,
 						allowedTools,
@@ -319,51 +379,51 @@ export class ClaudeCode implements INodeType {
 					});
 				}
 
-				// Build query options
-				interface QueryOptions {
-					prompt: string;
-					abortController: AbortController;
-					options: {
-						maxTurns: number;
-						permissionMode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
-						model: string;
-						systemPrompt?: string;
-						mcpServers?: Record<string, any>;
-						allowedTools?: string[];
-						disallowedTools?: string[];
-						fallbackModel?: string;
-						maxThinkingTokens?: number;
-						continue?: boolean;
-						cwd?: string;
-					};
-				}
-
-				const queryOptions: QueryOptions = {
-					prompt,
+				// Build query options for the Claude Agent SDK. The abort controller
+				// now lives inside the options object (it used to be a sibling of
+				// `prompt` in the older @anthropic-ai/claude-code SDK).
+				const queryOptions: Options = {
 					abortController,
-					options: {
-						maxTurns,
-						permissionMode: (additionalOptions.permissionMode || 'bypassPermissions') as any,
-						model,
-					},
+					maxTurns,
+					permissionMode: (additionalOptions.permissionMode ||
+						'bypassPermissions') as PermissionMode,
+					model,
 				};
 
-				// Add optional parameters
+				// `bypassPermissions` now requires an explicit opt-in flag, otherwise
+				// the SDK throws before the query starts.
+				if (queryOptions.permissionMode === 'bypassPermissions') {
+					queryOptions.allowDangerouslySkipPermissions = true;
+				}
+
+				// Reasoning effort (low | medium | high | xhigh | max). Empty string
+				// means "let the model/CLI decide", so we leave the field unset.
+				if (effort) {
+					queryOptions.effort = effort as EffortLevel;
+				}
+
+				// Add optional parameters. A bare string `systemPrompt` REPLACES Claude
+				// Code's built-in system prompt; use the preset+append form so the
+				// user's instructions are layered on top of the default behavior.
 				if (additionalOptions.systemPrompt) {
-					queryOptions.options.systemPrompt = additionalOptions.systemPrompt;
+					queryOptions.systemPrompt = {
+						type: 'preset',
+						preset: 'claude_code',
+						append: additionalOptions.systemPrompt,
+					};
 				}
 
 				// Add project path (cwd) if specified
 				if (projectPath && projectPath.trim() !== '') {
-					queryOptions.options.cwd = projectPath.trim();
+					queryOptions.cwd = projectPath.trim();
 					if (additionalOptions.debug) {
-						this.logger.debug('Working directory set', { cwd: queryOptions.options.cwd });
+						this.logger.debug('Working directory set', { cwd: queryOptions.cwd });
 					}
 				}
 
 				// Set allowed tools if any are specified
 				if (allowedTools.length > 0) {
-					queryOptions.options.allowedTools = allowedTools;
+					queryOptions.allowedTools = allowedTools;
 					if (additionalOptions.debug) {
 						this.logger.debug('Allowed tools configured', { allowedTools });
 					}
@@ -371,7 +431,7 @@ export class ClaudeCode implements INodeType {
 
 				// Set disallowed tools if any are specified
 				if (disallowedTools.length > 0) {
-					queryOptions.options.disallowedTools = disallowedTools;
+					queryOptions.disallowedTools = disallowedTools;
 					if (additionalOptions.debug) {
 						this.logger.debug('Disallowed tools configured', { disallowedTools });
 					}
@@ -379,25 +439,26 @@ export class ClaudeCode implements INodeType {
 
 				// Add fallback model if specified
 				if (additionalOptions.fallbackModel) {
-					queryOptions.options.fallbackModel = additionalOptions.fallbackModel;
+					queryOptions.fallbackModel = additionalOptions.fallbackModel;
 				}
 
 				// Add max thinking tokens if specified
 				if (additionalOptions.maxThinkingTokens && additionalOptions.maxThinkingTokens > 0) {
-					queryOptions.options.maxThinkingTokens = additionalOptions.maxThinkingTokens;
+					queryOptions.maxThinkingTokens = additionalOptions.maxThinkingTokens;
 				}
 
 				// Add continue flag if needed
 				if (operation === 'continue') {
-					queryOptions.options.continue = true;
+					queryOptions.continue = true;
 				}
 
-				// Execute query
+				// Load the ESM-only SDK, then execute the query
+				const { query } = await importClaudeAgentSdk();
 				const messages: SDKMessage[] = [];
 				const startTime = Date.now();
 
 				try {
-					for await (const message of query(queryOptions)) {
+					for await (const message of query({ prompt, options: queryOptions })) {
 						messages.push(message);
 
 						if (additionalOptions.debug) {
@@ -430,9 +491,9 @@ export class ClaudeCode implements INodeType {
 									type: message.type,
 									subtype: resultMsg.subtype,
 									hasResult: !!resultMsg.result,
-									hasError: !!resultMsg.error,
+									hasError: Array.isArray(resultMsg.errors) && resultMsg.errors.length > 0,
 									resultLength: resultMsg.result ? String(resultMsg.result).length : 0,
-									error: resultMsg.error || 'none',
+									errors: resultMsg.errors || 'none',
 									duration_ms: resultMsg.duration_ms,
 									total_cost: resultMsg.total_cost_usd,
 								});
@@ -441,7 +502,7 @@ export class ClaudeCode implements INodeType {
 								if (resultMsg.subtype === 'error_during_execution') {
 									this.logger.error('Claude Code execution error', {
 										subtype: resultMsg.subtype,
-										error: resultMsg.error,
+										errors: resultMsg.errors,
 										details: JSON.stringify(resultMsg).substring(0, 500),
 									});
 								}
@@ -504,9 +565,6 @@ export class ClaudeCode implements INodeType {
 						if (resultMessage) {
 							if (resultMessage.result) {
 								finalText = resultMessage.result;
-							} else if (resultMessage.error) {
-								errorText = resultMessage.error;
-								finalText = `Error: ${resultMessage.error}`;
 							} else if (resultMessage.subtype === 'error_max_turns') {
 								errorText = 'Maximum turns reached';
 								// Try to get the last assistant message before max turns
@@ -547,6 +605,11 @@ export class ClaudeCode implements INodeType {
 								} else {
 									finalText = 'Error: Execution failed. No output available.';
 								}
+							} else if (Array.isArray(resultMessage.errors) && resultMessage.errors.length > 0) {
+								// Any other error subtype (e.g. error_max_budget_usd,
+								// error_max_structured_output_retries): surface the SDK error text.
+								errorText = resultMessage.errors.join('; ');
+								finalText = `Error: ${errorText}`;
 							}
 
 							// Debug log the result message
@@ -555,9 +618,9 @@ export class ClaudeCode implements INodeType {
 									type: resultMessage.type,
 									subtype: resultMessage.subtype,
 									hasResult: !!resultMessage.result,
-									hasError: !!resultMessage.error,
+									hasError: Array.isArray(resultMessage.errors) && resultMessage.errors.length > 0,
 									resultLength: resultMessage.result ? String(resultMessage.result).length : 0,
-									errorMessage: resultMessage.error || 'none',
+									errorMessage: resultMessage.errors?.join('; ') || 'none',
 								});
 							}
 						} else {
@@ -660,7 +723,7 @@ export class ClaudeCode implements INodeType {
 									hasResult: !!resultMessage,
 									toolsAvailable: systemInit?.tools || [],
 								},
-								result: resultMessage?.result || resultMessage?.error || null,
+								result: resultMessage?.result || resultMessage?.errors?.join('; ') || null,
 								metrics: resultMessage
 									? {
 											duration_ms: resultMessage.duration_ms,

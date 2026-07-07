@@ -40,11 +40,19 @@ Transform support tickets into code fixes automatically:
 ## ⚡ Quick Start
 
 ### Prerequisites
-1. **Claude Code CLI** (required on your n8n server):
-   ```bash
-   npm install -g @anthropic-ai/claude-code
-   claude  # Authenticate (requires Claude Pro/Team subscription)
-   ```
+
+This node bundles the **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`), which ships the Claude Code engine — so you do **not** need a separate global CLI install for the node to run. You only need valid Claude credentials available to the n8n process. Use either:
+
+- **Log in with the Claude Code CLI** (recommended — the SDK reuses these credentials):
+  ```bash
+  npm install -g @anthropic-ai/claude-code
+  claude            # then /login (requires a Claude Pro / Max / Team subscription)
+  claude --version  # this node is tested against 2.1.202
+  ```
+- **Or set an API key** for the n8n process:
+  ```bash
+  export ANTHROPIC_API_KEY=sk-ant-...
+  ```
 
 ### Install in n8n
 
@@ -134,10 +142,11 @@ Claude Code comes equipped with powerful tools:
 
 ### **Advanced SDK Options**
 Fine-tune Claude Code's behavior with these powerful options:
+- 🎚️ **Reasoning Effort**: Control how hard the model thinks — `low`, `medium`, `high`, `xhigh`, or `max`. Levels the selected model doesn't support are silently downgraded.
 - 🚫 **Disallowed Tools**: Explicitly block specific tools for security
 - 🔄 **Fallback Model**: Automatically switch models when primary is overloaded
-- 🧠 **Max Thinking Tokens**: Control Claude's internal reasoning depth
-- 🔐 **Permission Modes**: Choose from `default`, `acceptEdits`, `bypassPermissions`, or `plan`
+- 🧠 **Max Thinking Tokens**: Deprecated by the SDK in favor of Reasoning Effort, but still honored
+- 🔐 **Permission Modes**: Choose from `default`, `acceptEdits`, `bypassPermissions`, `plan`, `dontAsk`, or `auto`
 
 ### **Model Context Protocol (MCP)**
 Extend Claude Code with specialized capabilities:
@@ -189,12 +198,12 @@ Extend Claude Code with specialized capabilities:
   "prompt": "Refactor this legacy code to use modern patterns",
   "projectPath": "/path/to/legacy-app",
   "model": "opus",
+  "effort": "xhigh",  // Deep reasoning for a complex refactor (low|medium|high|xhigh|max)
   "allowedTools": ["Read", "Write", "Edit", "MultiEdit", "Grep"],
   "disallowedTools": ["Bash"],  // Prevent command execution for safety
   "additionalOptions": {
     "permissionMode": "plan",  // Claude will plan before executing
     "fallbackModel": "sonnet",  // Auto-switch if Opus is overloaded
-    "maxThinkingTokens": 50000,  // Allow deep reasoning for complex refactoring
     "systemPrompt": "Preserve all existing functionality while modernizing the code"
   }
 }
@@ -252,12 +261,13 @@ If (Can fix automatically)
 ## 🚦 Getting Started
 
 ### 1. **Verify Prerequisites**
-Make sure Claude Code CLI is installed and authenticated on your n8n server:
+Make sure Claude is authenticated on your n8n host. If you authenticated via the CLI:
 ```bash
-claude --version  # Should show the version
+claude --version  # Should show 2.1.202 (or newer)
 ```
+If you use an API key instead, confirm `ANTHROPIC_API_KEY` is set for the n8n process.
 
-If not installed, see the [Quick Start](#-quick-start) section above.
+If not set up yet, see the [Quick Start](#-quick-start) section above.
 
 ### 2. **Create Your First Workflow**
 1. In n8n, create a new workflow

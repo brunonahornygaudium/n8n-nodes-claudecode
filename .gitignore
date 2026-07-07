@@ -6,3 +6,11 @@ dist
 npm-debug.log*
 yarn.lock
 .vscode/launch.json
+
+# Secrets / local env — never commit (contains CLAUDE_CODE_OAUTH_TOKEN, DB/Redis creds)
+.env
+.env.*
+!.env.example
+
+# Misc local artifacts
+firebase-debug.log
